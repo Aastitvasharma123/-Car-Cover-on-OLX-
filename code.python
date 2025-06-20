@@ -1,0 +1,116 @@
+import requests
+from bs4 import BeautifulSoup
+import csv
+from datetime import datetime
+import time
+import random
+
+# User-agent rotation to avoid blocking
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
+]
+
+# Headers to mimic browser behavior
+HEADERS = {
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive'
+}
+
+def get_random_agent():
+    return {'User-Agent': random.choice(USER_AGENTS)}
+
+def scrape_olx(search_query, max_pages=1):
+    """
+    Scrape OLX for the given search query and return listings
+    :param search_query: String to search for
+    :param max_pages: Number of pages to scrape
+    :return: List of dictionaries containing listing information
+    """
+    base_url = "https://www.olx.in"
+    search_url = f"{base_url}/items/q-{search_query.replace(' ', '-')}"
+    
+    listings = []
+    
+    for page in range(1, max_pages + 1):
+        print(f"Scraping page {page}...")
+        
+        try:
+            # Add page parameter if not first page
+            url = f"{search_url}?page={page}" if page > 1 else search_url
+            
+            # Make the request with random user agent
+            response = requests.get(url, headers={**HEADERS, **get_random_agent()}, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Find all listing items
+            items = soup.find_all('li', {'class': 'EIR5N'})
+            
+            for item in items:
+                try:
+                    title = item.find('span', {'class': '_2tW1I'}).text.strip()
+                    price = item.find('span', {'class': '_89yzn'}).text.strip() if item.find('span', {'class': '_89yzn'}) else 'Price not listed'
+                    location = item.find('span', {'class': '_2VQu4'}).text.strip() if item.find('span', {'class': '_2VQu4'}) else 'Location not specified'
+                    url = base_url + item.find('a')['href'] if item.find('a') else '#'
+                    
+                    listings.append({
+                        'title': title,
+                        'price': price,
+                        'location': location,
+                        'url': url,
+                        'scraped_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    })
+                except Exception as e:
+                    print(f"Error processing item: {e}")
+                    continue
+            
+            # Random delay to avoid overwhelming the server
+            time.sleep(random.uniform(1, 3))
+            
+        except requests.RequestException as e:
+            print(f"Error fetching page {page}: {e}")
+            break
+    
+    return listings
+
+def save_to_csv(data, filename):
+    """
+    Save scraped data to a CSV file
+    :param data: List of dictionaries to save
+    :param filename: Output filename
+    """
+    try:
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = ['title', 'price', 'location', 'url', 'scraped_at']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            
+            writer.writeheader()
+            writer.writerows(data)
+            
+        print(f"Successfully saved {len(data)} listings to {filename}")
+    except Exception as e:
+        print(f"Error saving to CSV: {e}")
+
+def main():
+    search_query = "Car Cover"
+    output_file = "olx_car_covers.csv"
+    
+    print(f"Starting OLX scraper for: {search_query}")
+    
+    try:
+        listings = scrape_olx(search_query, max_pages=2)
+        
+        if listings:
+            save_to_csv(listings, output_file)
+        else:
+            print("No listings found.")
+            
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()
